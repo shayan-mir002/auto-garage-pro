@@ -4,7 +4,7 @@ import cors from 'cors';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/autogarage';
+const MONGO_URI = process.env.MONGO_URI || process.env.MONGODB_URI || 'mongodb://localhost:27017/autogarage';
 
 app.use(cors());
 app.use(express.json());
@@ -338,17 +338,26 @@ async function seedDatabase() {
   console.log('Database seeding complete!');
 }
 
-// ─── Start Server ──────────────────────────────────────────────────────────
+// ─── Connect & Seed helper ────────────────────────────────────────────────
+async function connectAndSeed(uri) {
+  await mongoose.connect(uri);
+  await seedDatabase();
+}
 
-mongoose.connect(MONGO_URI)
-  .then(async () => {
-    console.log('Connected to MongoDB');
-    await seedDatabase();
-    app.listen(PORT, () => {
-      console.log(`Server running on http://localhost:${PORT}`);
+// ─── Start Server (local dev only) ────────────────────────────────────────
+if (!process.env.VERCEL) {
+  mongoose.connect(MONGO_URI)
+    .then(async () => {
+      console.log('Connected to MongoDB');
+      await seedDatabase();
+      app.listen(PORT, () => {
+        console.log(`Server running on http://localhost:${PORT}`);
+      });
+    })
+    .catch((err) => {
+      console.error('MongoDB connection error:', err);
+      process.exit(1);
     });
-  })
-  .catch((err) => {
-    console.error('MongoDB connection error:', err);
-    process.exit(1);
-  });
+}
+
+export { app, connectAndSeed };
