@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Wrench, Mail, Lock, User, UserPlus, Loader2 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -6,10 +6,16 @@ import toast from 'react-hot-toast';
 import ChatWidget from '../../components/ChatWidget';
 
 export default function CustomerRegister() {
-  const { customerRegister } = useAuth();
+  const { customerRegister, isCustomer, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [form, setForm] = useState({ fullName: '', email: '', password: '', confirmPassword: '' });
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!authLoading && isCustomer) {
+      navigate('/portal', { replace: true });
+    }
+  }, [isCustomer, authLoading, navigate]);
 
   const handleChange = (e) => setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
 
@@ -23,12 +29,17 @@ export default function CustomerRegister() {
     }
     setLoading(true);
     try {
-      await customerRegister(form.email, form.password, form.fullName);
-      toast.success('Account created successfully!');
-      navigate('/');
+      const data = await customerRegister(form.email, form.password, form.fullName);
+      if (data && !data.session) {
+        toast.success('Registration successful! Please verify your email to log in.', { duration: 6000 });
+        setLoading(false);
+        navigate('/login');
+      } else {
+        toast.success(`Account created successfully! Welcome, ${form.fullName}!`);
+        setLoading(false);
+      }
     } catch (err) {
       toast.error(err.message || 'Registration failed.');
-    } finally {
       setLoading(false);
     }
   };

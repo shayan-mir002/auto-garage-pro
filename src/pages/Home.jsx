@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { ArrowRight, Wrench, Shield, Clock, Star, ChevronRight, Zap, Award } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { STATS } from '../utils/constants';
-import { supabase } from '../lib/supabase';
+import { getAll } from '../lib/supabase';
 
 const features = [
   { Icon: Shield, title: 'Quality Guaranteed', desc: 'Every service backed by our 90-day workmanship warranty.' },
@@ -17,26 +17,20 @@ export default function Home() {
   const [reviews, setReviews] = useState([]);
 
   useEffect(() => {
+    let cancelled = false;
     const fetchReviews = async () => {
-      const { data } = await supabase
-        .from('reviews')
-        .select('*')
-        .eq('is_approved', true)
-        .order('created_at', { ascending: false })
-        .limit(3);
-
-      // Fallback to hardcoded if no real reviews
-      if (data && data.length > 0) {
-        setReviews(data);
-      } else {
-        setReviews([
-          { customer_name: 'Sarah Mitchell', service_type: 'Premium Package', rating: 5, comment: 'Outstanding service! My car came back running smoother than ever. Transparent pricing and no hidden fees.' },
-          { customer_name: 'James Okafor', service_type: 'Standard Package', rating: 5, comment: 'Booked online, dropped off my car, and it was ready in 3 hours. These guys are genuinely professional.' },
-          { customer_name: 'Linda Cruz', service_type: 'Basic Package', rating: 5, comment: 'Best mechanic shop in the area. They explained everything clearly and the pricing was very fair.' },
-        ]);
-      }
+      if (cancelled) return;
+      const data = await getAll('reviews');
+      if (cancelled) return;
+      setReviews(
+        data
+          .filter((r) => r.is_approved)
+          .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+          .slice(0, 3)
+      );
     };
     fetchReviews();
+    return () => { cancelled = true; };
   }, []);
 
   return (

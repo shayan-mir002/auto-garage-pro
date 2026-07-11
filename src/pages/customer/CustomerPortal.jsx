@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Navigate, Link } from 'react-router-dom';
+import { Navigate, Link, useNavigate } from 'react-router-dom';
 import {
   CalendarDays, ShoppingBag, Bell, User,
   LogOut, CheckCircle, Clock, XCircle, Loader2,
   AlertCircle, Package, Star, Edit2, Save,
 } from 'lucide-react';
-import { supabase } from '../../lib/supabase';
+import { getAll, query, insert, update, getById } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
 import toast from 'react-hot-toast';
 
@@ -27,6 +27,7 @@ const STATUS_COLORS = {
 
 export default function CustomerPortal() {
   const { session, profile, isCustomer, loading, logout, updateProfile } = useAuth();
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('appointments');
   const [appointments, setAppointments] = useState([]);
   const [orders, setOrders]             = useState([]);
@@ -47,28 +48,41 @@ export default function CustomerPortal() {
   }, [profile]);
 
   useEffect(() => {
-    if (isCustomer && session) fetchAllData();
-  }, [isCustomer, session, activeTab]);
+    if (!isCustomer || !session?.user?.id) return;
+    fetchAllData();
+  }, [isCustomer, session?.user?.id, session?.user?.email, activeTab]);
 
   const fetchAllData = async () => {
+    if (!session?.user) return;
     setDataLoading(true);
     const email = session.user.email;
 
-    const [apptRes, orderRes, notifRes] = await Promise.all([
-      supabase.from('appointments').select('*').or(`user_id.eq.${session.user.id},customer_email.eq.${email}`).order('created_at', { ascending: false }),
-      supabase.from('orders').select('*, order_items(*)').eq('user_id', session.user.id).order('created_at', { ascending: false }),
-      supabase.from('notifications').select('*').or(`user_id.eq.${session.user.id},customer_email.eq.${email}`).order('created_at', { ascending: false }),
+    const [appointmentsData, ordersData, notificationsData] = await Promise.all([
+      query('appointments', (r) => r.user_id === session.user.id || r.customer_email === email),
+      query('orders', (r) => r.user_id === session.user.id),
+      query('notifications', (r) => r.user_id === session.user.id || r.customer_email === email),
     ]);
 
-    setAppointments(apptRes.data || []);
-    setOrders(orderRes.data || []);
-    setNotifications(notifRes.data || []);
-    setCompletedAppts((apptRes.data || []).filter(a => a.status === 'Completed'));
+    appointmentsData.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    ordersData.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    notificationsData.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+    const ordersWithItems = await Promise.all(
+      ordersData.map(async (o) => ({
+        ...o,
+        order_items: await query('order_items', (r) => r.order_id === o.id),
+      }))
+    );
+
+    setAppointments(appointmentsData);
+    setOrders(ordersWithItems);
+    setNotifications(notificationsData);
+    setCompletedAppts(appointmentsData.filter(a => a.status === 'Completed'));
     setDataLoading(false);
   };
 
   const markNotificationRead = async (id) => {
-    await supabase.from('notifications').update({ is_read: true }).eq('id', id);
+    await update('notifications', id, { is_read: true });
     setNotifications((prev) => prev.map((n) => n.id === id ? { ...n, is_read: true } : n));
   };
 
@@ -85,28 +99,23 @@ export default function CustomerPortal() {
   const handleSubmitReview = async (e) => {
     e.preventDefault();
     if (!reviewForm.comment.trim()) { toast.error('Please write a comment.'); return; }
-    setSubmittingReview(true);
-    try {
-      const appt = completedAppts.find(a => a.id === reviewForm.appointment_id);
-      await supabase.from('reviews').insert({
-        appointment_id: reviewForm.appointment_id || null,
-        customer_name: profile?.full_name || session.user.email,
-        customer_email: session.user.email,
-        rating: reviewForm.rating,
-        comment: reviewForm.comment,
-        service_type: appt?.service_type || reviewForm.service_type,
-      });
-      toast.success('Review submitted! It will appear after approval.');
-      setReviewForm({ appointment_id: '', rating: 5, comment: '', service_type: '' });
-    } catch {
-      toast.error('Failed to submit review.');
-    } finally {
-      setSubmittingReview(false);
-    }
+    const appt = completedAppts.find(a => a.id === reviewForm.appointment_id);
+    
+    await insert('reviews', {
+      appointment_id: reviewForm.appointment_id || null,
+      customer_name: profile?.full_name || session.user.email,
+      customer_email: session.user.email,
+      rating: reviewForm.rating,
+      comment: reviewForm.comment,
+      service_type: appt?.service_type || reviewForm.service_type,
+    });
+
+    toast.success('Review submitted! It will appear after approval.');
+    setReviewForm({ appointment_id: '', rating: 5, comment: '', service_type: '' });
   };
 
-  const handleLogout = async () => {
-    await logout();
+  const handleLogout = () => {
+    logout();
   };
 
   if (loading) return <div className="min-h-screen flex items-center justify-center"><Loader2 size={32} className="animate-spin text-brand-400" /></div>;
@@ -232,7 +241,7 @@ export default function CustomerPortal() {
                             <span className={`text-xs font-semibold px-3 py-1 rounded-full border ${STATUS_COLORS[o.status] || 'bg-slate-700/40 text-slate-300 border-slate-600/40'}`}>
                               {o.status}
                             </span>
-                            <p className="text-accent-orange font-bold mt-1">${o.total_amount.toFixed(2)}</p>
+                            <p className="text-accent-orange font-bold mt-1">${(o.total_amount ?? 0).toFixed(2)}</p>
                           </div>
                         </div>
                         <div className="space-y-1 mt-2">

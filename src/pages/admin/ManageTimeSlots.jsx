@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Clock, RefreshCw, Loader2, ToggleLeft, ToggleRight } from 'lucide-react';
-import { supabase } from '../../lib/supabase';
+import { getAll, insert, update, remove, query } from '../../lib/supabase';
 import { DEFAULT_TIME_SLOTS, formatTime } from '../../utils/constants';
 import toast from 'react-hot-toast';
 
@@ -13,35 +13,40 @@ export default function ManageTimeSlots() {
 
   const fetchSlots = async () => {
     setLoading(true);
-    const { data } = await supabase.from('time_slots').select('*').order('slot_time');
-    if (data && data.length > 0) {
-      setSlots(data);
-    } else {
-      // Show defaults if table is empty
-      setSlots(DEFAULT_TIME_SLOTS.map((t) => ({ id: null, slot_time: t, is_active: true })));
+    try {
+      const data = await getAll('time_slots');
+      data.sort((a, b) => a.slot_time.localeCompare(b.slot_time));
+      if (data.length > 0) {
+        setSlots(data);
+      } else {
+        setSlots(DEFAULT_TIME_SLOTS.map((t) => ({ id: null, slot_time: t, is_active: true })));
+      }
+    } catch (err) {
+      console.error('[ManageTimeSlots] Error fetching slots:', err);
+      toast.error('Failed to load slots.');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const toggleSlot = async (slot) => {
     if (!slot.id) {
-      // Slot not yet in DB — seed all defaults first
       await seedDefaults();
       return;
     }
     const newVal = !slot.is_active;
-    const { error } = await supabase.from('time_slots').update({ is_active: newVal }).eq('id', slot.id);
-    if (error) { toast.error('Failed to update slot.'); return; }
+    await update('time_slots', slot.id, { is_active: newVal });
     setSlots((prev) => prev.map((s) => s.id === slot.id ? { ...s, is_active: newVal } : s));
     toast.success(`${formatTime(slot.slot_time)} ${newVal ? 'enabled' : 'disabled'}.`);
   };
 
   const seedDefaults = async () => {
-    const { error } = await supabase.from('time_slots').upsert(
-      DEFAULT_TIME_SLOTS.map((t) => ({ slot_time: t, is_active: true })),
-      { onConflict: 'slot_time' }
-    );
-    if (error) { toast.error('Failed to seed slots.'); return; }
+    for (const t of DEFAULT_TIME_SLOTS) {
+      const existing = await query('time_slots', (s) => s.slot_time === t);
+      if (existing.length === 0) {
+        await insert('time_slots', { slot_time: t, is_active: true });
+      }
+    }
     toast.success('Default time slots initialized.');
     fetchSlots();
   };
@@ -49,12 +54,15 @@ export default function ManageTimeSlots() {
   const resetAll = async () => {
     if (!window.confirm('Reset all slots to active?')) return;
     setResetting(true);
-    const { error } = await supabase.from('time_slots').upsert(
-      DEFAULT_TIME_SLOTS.map((t) => ({ slot_time: t, is_active: true })),
-      { onConflict: 'slot_time' }
-    );
-    if (error) { toast.error('Reset failed.'); }
-    else { toast.success('All slots reset to active.'); fetchSlots(); }
+    const existing = await getAll('time_slots');
+    for (const s of existing) {
+      await remove('time_slots', s.id);
+    }
+    for (const t of DEFAULT_TIME_SLOTS) {
+      await insert('time_slots', { slot_time: t, is_active: true });
+    }
+    toast.success('All slots reset to active.');
+    fetchSlots();
     setResetting(false);
   };
 

@@ -1,34 +1,38 @@
 import { useState, useEffect } from 'react';
 import { Star, Check, Trash2, Loader2 } from 'lucide-react';
-import { supabase } from '../../lib/supabase';
+import { getAll, update, remove } from '../../lib/supabase';
 import toast from 'react-hot-toast';
 
 export default function ManageReviews() {
   const [reviews, setReviews] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter]   = useState('all'); // 'all' | 'pending' | 'approved'
+  const [filter, setFilter]   = useState('all');
 
   useEffect(() => { fetchReviews(); }, []);
 
   const fetchReviews = async () => {
     setLoading(true);
-    const { data } = await supabase
-      .from('reviews')
-      .select('*')
-      .order('created_at', { ascending: false });
-    setReviews(data || []);
-    setLoading(false);
+    try {
+      const data = await getAll('reviews');
+      data.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      setReviews(data);
+    } catch (err) {
+      console.error('[ManageReviews] Error fetching reviews:', err);
+      toast.error('Failed to load reviews.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const approveReview = async (id) => {
-    await supabase.from('reviews').update({ is_approved: true }).eq('id', id);
+    await update('reviews', id, { is_approved: true });
     setReviews((prev) => prev.map((r) => r.id === id ? { ...r, is_approved: true } : r));
     toast.success('Review approved!');
   };
 
   const deleteReview = async (id) => {
     if (!confirm('Delete this review?')) return;
-    await supabase.from('reviews').delete().eq('id', id);
+    await remove('reviews', id);
     setReviews((prev) => prev.filter((r) => r.id !== id));
     toast.success('Review deleted.');
   };

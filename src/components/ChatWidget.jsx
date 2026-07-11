@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { MessageCircle, X, Send, Loader2 } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { getAll, insert } from '../lib/supabase';
 
-// Generates or retrieves a unique session ID for anonymous chat
+
 function getSessionId() {
   let id = localStorage.getItem('chat_session_id');
   if (!id) {
@@ -22,22 +22,9 @@ export default function ChatWidget() {
   const bottomRef = useRef(null);
   const sessionId = getSessionId();
 
-  // Load messages & subscribe to realtime
   useEffect(() => {
     if (!open) return;
     fetchMessages();
-
-    const channel = supabase
-      .channel(`chat_${sessionId}`)
-      .on('postgres_changes', {
-        event: 'INSERT', schema: 'public', table: 'chat_messages',
-        filter: `session_id=eq.${sessionId}`,
-      }, (payload) => {
-        setMessages((prev) => [...prev, payload.new]);
-      })
-      .subscribe();
-
-    return () => supabase.removeChannel(channel);
   }, [open]);
 
   useEffect(() => {
@@ -45,12 +32,10 @@ export default function ChatWidget() {
   }, [messages]);
 
   const fetchMessages = async () => {
-    const { data } = await supabase
-      .from('chat_messages')
-      .select('*')
-      .eq('session_id', sessionId)
-      .order('created_at');
-    setMessages(data || []);
+    const all = await getAll('chat_messages');
+    const filtered = all.filter(m => m.session_id === sessionId);
+    const sorted = filtered.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    setMessages(sorted);
   };
 
   const handleSetName = (e) => {
@@ -64,7 +49,7 @@ export default function ChatWidget() {
     e.preventDefault();
     if (!text.trim()) return;
     setSending(true);
-    await supabase.from('chat_messages').insert({
+    await insert('chat_messages', {
       session_id:    sessionId,
       customer_name: name,
       sender:        'customer',
@@ -100,7 +85,6 @@ export default function ChatWidget() {
 
           {/* Body */}
           <div className="flex-1 overflow-y-auto p-4 space-y-3">
-            {/* Welcome message */}
             <div className="flex justify-start">
               <div className="bg-dark-600 text-slate-300 text-sm px-4 py-2.5 rounded-2xl rounded-tl-sm max-w-[80%]">
                 👋 Hi! How can we help you today?

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Plus, Pencil, Trash2, Loader2, X, Check, MessageSquare } from 'lucide-react';
-import { supabase } from '../../lib/supabase';
-import { PRODUCT_CATEGORIES, SEED_PRODUCTS } from '../../utils/constants';
+import { getAll, insert, update, remove } from '../../lib/supabase';
+import { PRODUCT_CATEGORIES, SEED_PRODUCTS, getImageUrl } from '../../utils/constants';
 import toast from 'react-hot-toast';
 
 const emptyForm = { name: '', category: 'Filters', description: '', price: '', image_url: '' };
@@ -21,23 +21,15 @@ export default function ManageProducts() {
 
   const fetchData = async () => {
     setLoading(true);
-    try {
-      const [prodRes, inqRes] = await Promise.all([
-        supabase.from('products').select('*').order('name'),
-        supabase.from('inquiries').select('*, products(name)').order('created_at', { ascending: false }),
-      ]);
-
-      if (prodRes.error) console.error('Products fetch error:', prodRes.error);
-      if (inqRes.error) console.error('Inquiries fetch error:', inqRes.error);
-
-      setProducts(prodRes.data || []);
-      setInquiries(inqRes.data || []);
-    } catch (err) {
-      console.error('Fetch data catch:', err);
-      toast.error('Failed to connect to database.');
-    } finally {
-      setLoading(false);
-    }
+    const [productsData, inquiriesData] = await Promise.all([
+      getAll('products'),
+      getAll('inquiries'),
+    ]);
+    productsData.sort((a, b) => a.name.localeCompare(b.name));
+    inquiriesData.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    setProducts(productsData);
+    setInquiries(inquiriesData.map((i) => ({ ...i, products: productsData.find((p) => p.id === i.product_id) })));
+    setLoading(false);
   };
 
   const openAdd = () => { setForm(emptyForm); setEditId(null); setShowForm(true); };
@@ -61,20 +53,16 @@ export default function ManageProducts() {
       image_url: form.image_url,
       is_active: true,
     };
-    try {
-      if (editId) {
-        const { error } = await supabase.from('products').update(payload).eq('id', editId);
-        if (error) throw error;
-        toast.success('Product updated.');
-      } else {
-        const { error } = await supabase.from('products').insert(payload);
-        if (error) throw error;
-        toast.success('Product created.');
-      }
-      setShowForm(false);
-      fetchData();
-    } catch { toast.error('Save failed.'); }
-    finally { setSaving(false); }
+    if (editId) {
+      await update('products', editId, payload);
+      toast.success('Product updated.');
+    } else {
+      await insert('products', payload);
+      toast.success('Product created.');
+    }
+    setShowForm(false);
+    setSaving(false);
+    fetchData();
   };
 
   const handleDelete = async (id) => {
@@ -83,56 +71,36 @@ export default function ManageProducts() {
       return;
     }
     if (!window.confirm('Are you sure you want to delete this product?')) return;
-
-    try {
-      const { error } = await supabase.from('products').delete().eq('id', id);
-      if (error) {
-        console.error('Delete error:', error);
-        toast.error(`Delete failed: ${error.message}`);
-        return;
-      }
-      toast.success('Product deleted successfully.');
-      setProducts((prev) => prev.filter((p) => p.id !== id));
-    } catch (err) {
-      console.error('Catch error:', err);
-      toast.error('An unexpected error occurred during deletion.');
-    }
+    await remove('products', id);
+    toast.success('Product deleted successfully.');
+    setProducts((prev) => prev.filter((p) => p.id !== id));
   };
 
   const handleSeedProducts = async () => {
     if (!window.confirm(`Seed ${SEED_PRODUCTS.length} default products?`)) return;
     setSeeding(true);
-    try {
-      const { error } = await supabase.from('products').insert(
-        SEED_PRODUCTS.map((p) => ({ ...p, is_active: true }))
-      );
-      if (error) {
-        console.error('Seeding error:', error);
-        toast.error('Seeding failed: ' + error.message);
-      } else {
-        toast.success(`${SEED_PRODUCTS.length} products seeded!`);
-        fetchData();
-      }
-    } catch (err) {
-      console.error('Catch seeding error:', err);
-      toast.error('An unexpected error occurred during seeding.');
-    } finally {
-      setSeeding(false);
+    for (const p of SEED_PRODUCTS) {
+      await insert('products', { ...p, is_active: true });
     }
+    toast.success(`${SEED_PRODUCTS.length} products seeded!`);
+    setSeeding(false);
+    fetchData();
   };
 
   const handleClearProducts = async () => {
     if (!window.confirm('WARNING: This will delete ALL products. Continue?')) return;
     setLoading(true);
-    const { error } = await supabase.from('products').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-    if (error) toast.error('Clear failed: ' + error.message);
-    else { toast.success('Catalog cleared.'); fetchData(); }
+    const all = await getAll('products');
+    for (const p of all) {
+      await remove('products', p.id);
+    }
+    toast.success('Catalog cleared.');
     setLoading(false);
+    fetchData();
   };
 
   const updateInquiryStatus = async (id, status) => {
-    const { error } = await supabase.from('inquiries').update({ status }).eq('id', id);
-    if (error) { toast.error('Failed.'); return; }
+    await update('inquiries', id, { status });
     setInquiries((prev) => prev.map((i) => i.id === id ? { ...i, status } : i));
     toast.success('Inquiry updated.');
   };
@@ -247,7 +215,7 @@ export default function ManageProducts() {
                     : products.map((p) => (
                       <tr key={p.id}>
                         <td>
-                          <img src={p.image_url} alt={p.name} className="w-14 h-10 object-cover rounded-lg bg-dark-600"
+                          <img src={getImageUrl(p.image_url, p.name)} alt={p.name} className="w-14 h-10 object-cover rounded-lg bg-dark-600"
                             onError={(e) => { e.target.style.opacity = '0.3'; }} />
                         </td>
                         <td className="text-white font-medium max-w-[200px] truncate">{p.name}</td>

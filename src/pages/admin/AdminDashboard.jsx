@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { CalendarDays, ShoppingBag, Clock, MessageSquare, TrendingUp, ChevronRight, Star, Package } from 'lucide-react';
-import { supabase } from '../../lib/supabase';
+import { getAll, query } from '../../lib/supabase';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
@@ -19,34 +19,39 @@ export default function AdminDashboard() {
   useEffect(() => { fetchData(); }, []);
 
   const fetchData = async () => {
+    setLoading(true);
     const today = new Date().toISOString().split('T')[0];
 
-    const [todayRes, pendingRes, inquiryRes, productRes, recentRes, ordersRes, reviewsRes, allAppts] = await Promise.all([
-      supabase.from('appointments').select('id', { count: 'exact' }).eq('appointment_date', today),
-      supabase.from('appointments').select('id', { count: 'exact' }).eq('status', 'Pending'),
-      supabase.from('inquiries').select('id', { count: 'exact' }).eq('status', 'New'),
-      supabase.from('products').select('id', { count: 'exact' }).eq('is_active', true),
-      supabase.from('appointments').select('*').order('created_at', { ascending: false }).limit(5),
-      supabase.from('orders').select('id', { count: 'exact' }).eq('status', 'Pending'),
-      supabase.from('reviews').select('id', { count: 'exact' }).eq('is_approved', false),
-      supabase.from('appointments').select('service_type, status'),
+    const [allAppts, allInquiries, allProducts, allOrders, allReviews] = await Promise.all([
+      getAll('appointments'),
+      query('inquiries', (r) => r.status === 'New'),
+      query('products', (r) => r.is_active === true),
+      query('orders', (r) => r.status === 'Pending'),
+      query('reviews', (r) => !r.is_approved),
     ]);
 
-    setStats({
-      today:          todayRes.count    || 0,
-      pending:        pendingRes.count  || 0,
-      inquiries:      inquiryRes.count  || 0,
-      totalProducts:  productRes.count  || 0,
-      newOrders:      ordersRes.count   || 0,
-      pendingReviews: reviewsRes.count  || 0,
-    });
-    setRecentAppts(recentRes.data || []);
+    const allApptsFull = allAppts;
 
-    // Build service popularity chart
-    const appts = allAppts.data || [];
+    setStats({
+      today:          allApptsFull.filter((r) => r.appointment_date === today).length,
+      pending:        allApptsFull.filter((r) => r.status === 'Pending').length,
+      inquiries:      allInquiries.length,
+      totalProducts:  allProducts.length,
+      newOrders:      allOrders.length,
+      pendingReviews: allReviews.length,
+    });
+
+    setRecentAppts(
+      [...allApptsFull]
+        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+        .slice(0, 5)
+    );
+
     const serviceCounts = {};
-    appts.forEach((a) => {
-      serviceCounts[a.service_type] = (serviceCounts[a.service_type] || 0) + 1;
+    allApptsFull.forEach((a) => {
+      if (a.service_type) {
+        serviceCounts[a.service_type] = (serviceCounts[a.service_type] || 0) + 1;
+      }
     });
     setServiceChart(
       Object.entries(serviceCounts)
@@ -55,9 +60,12 @@ export default function AdminDashboard() {
         .map(([name, count]) => ({ name: name.replace(' Package', ''), count }))
     );
 
-    // Build status distribution pie
     const statusCounts = {};
-    appts.forEach((a) => { statusCounts[a.status] = (statusCounts[a.status] || 0) + 1; });
+    allApptsFull.forEach((a) => {
+      if (a.status) {
+        statusCounts[a.status] = (statusCounts[a.status] || 0) + 1;
+      }
+    });
     setStatusChart(Object.entries(statusCounts).map(([name, value]) => ({ name, value })));
 
     setLoading(false);

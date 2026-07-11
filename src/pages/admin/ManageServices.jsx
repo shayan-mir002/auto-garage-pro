@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Plus, Pencil, Trash2, Loader2, X, Check } from 'lucide-react';
-import { supabase } from '../../lib/supabase';
+import { getAll, insert, update, remove } from '../../lib/supabase';
 import toast from 'react-hot-toast';
 
 const emptyForm = { tier: 'Basic', name: '', description: '', price: '', inclusions: '' };
@@ -17,8 +17,9 @@ export default function ManageServices() {
 
   const fetchServices = async () => {
     setLoading(true);
-    const { data } = await supabase.from('service_plans').select('*').order('price');
-    setServices(data || []);
+    const data = await getAll('service_plans');
+    data.sort((a, b) => a.price - b.price);
+    setServices(data);
     setLoading(false);
   };
 
@@ -42,20 +43,16 @@ export default function ManageServices() {
       price: parseFloat(form.price),
       inclusions: form.inclusions.split('\n').map((s) => s.trim()).filter(Boolean),
     };
-    try {
-      if (editId) {
-        const { error } = await supabase.from('service_plans').update(payload).eq('id', editId);
-        if (error) throw error;
-        toast.success('Service plan updated.');
-      } else {
-        const { error } = await supabase.from('service_plans').insert({ ...payload, is_active: true });
-        if (error) throw error;
-        toast.success('Service plan created.');
-      }
-      setShowForm(false);
-      fetchServices();
-    } catch { toast.error('Save failed.'); }
-    finally { setSaving(false); }
+    if (editId) {
+      await update('service_plans', editId, payload);
+      toast.success('Service plan updated.');
+    } else {
+      await insert('service_plans', { ...payload, is_active: true });
+      toast.success('Service plan created.');
+    }
+    setShowForm(false);
+    setSaving(false);
+    fetchServices();
   };
 
   const handleSeedDefaults = async () => {
@@ -66,53 +63,35 @@ export default function ManageServices() {
       { tier: 'Standard', name: 'Standard Package', price: 99.99, description: 'Comprehensive care for peace of mind on the road.', inclusions: ['All Basic Services','Brake Pad Inspection','Brake Fluid Check','Tyre Rotation','Battery Health Test','Air Filter Check'], is_active: true },
       { tier: 'Premium', name: 'Premium Package', price: 199.99, description: 'The complete vehicle overhaul — nothing left unchecked.', inclusions: ['All Standard Services','Full Engine Tune-Up','Spark Plug Replacement','Interior & Exterior Detailing','Diagnostics Scan','Coolant Flush','Transmission Fluid Check','Comprehensive Road Test'], is_active: true }
     ];
-    try {
-      const { error } = await supabase.from('service_plans').insert(defaults);
-      if (error) throw error;
-      toast.success('Standard plans restored!');
-      fetchServices();
-    } catch (err) {
-      toast.error('Seed failed: ' + (err.message || 'Unknown error'));
-    } finally { setSaving(false); }
+    for (const d of defaults) {
+      await insert('service_plans', d);
+    }
+    toast.success('Standard plans restored!');
+    setSaving(false);
+    fetchServices();
   };
 
   const handleClearAll = async () => {
     if (!window.confirm('DANGER: This will delete ALL service plans. Continue?')) return;
     setLoading(true);
-    try {
-      const { error } = await supabase.from('service_plans').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-      if (error) throw error;
-      toast.success('All services cleared.');
-      fetchServices();
-    } catch (err) {
-      toast.error('Clear failed.');
-    } finally { setLoading(false); }
+    const all = await getAll('service_plans');
+    for (const s of all) {
+      await remove('service_plans', s.id);
+    }
+    toast.success('All services cleared.');
+    setLoading(false);
+    fetchServices();
   };
 
   const handleDelete = async (id) => {
     if (!id) return;
-    
-    // TEMPORARY: One-click delete to verify it works without popups
-    console.log('Deleting service ID:', id);
-    
-    try {
-      const { error } = await supabase.from('service_plans').delete().eq('id', id);
-      if (error) {
-        console.error('Database delete error:', error);
-        toast.error(`Delete failed: ${error.message}`);
-        return;
-      }
-      toast.success('Deleted successfully.');
-      setServices((prev) => prev.filter((s) => s.id !== id));
-    } catch (err) {
-      console.error('Critical catch:', err);
-      toast.error('Error deleting.');
-    }
+    await remove('service_plans', id);
+    toast.success('Deleted successfully.');
+    setServices((prev) => prev.filter((s) => s.id !== id));
   };
 
   const toggleActive = async (s) => {
-    const { error } = await supabase.from('service_plans').update({ is_active: !s.is_active }).eq('id', s.id);
-    if (error) { toast.error('Failed to toggle.'); return; }
+    await update('service_plans', s.id, { is_active: !s.is_active });
     setServices((prev) => prev.map((p) => p.id === s.id ? { ...p, is_active: !p.is_active } : p));
   };
 
@@ -217,10 +196,7 @@ export default function ManageServices() {
                           EDIT
                         </button>
                         <button 
-                          onClick={() => {
-                            console.log('Attempting delete for:', s.id);
-                            handleDelete(s.id);
-                          }} 
+                          onClick={() => handleDelete(s.id)} 
                           className="px-2 py-1.5 rounded bg-red-500/10 text-red-400 hover:bg-red-500/20 text-xs font-bold transition-all"
                         >
                           DELETE

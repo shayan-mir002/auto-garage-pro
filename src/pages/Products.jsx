@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ShoppingBag, Search, Filter, ShoppingCart } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { getAll } from '../lib/supabase';
 import ProductCard from '../components/ProductCard';
 import ProductModal from '../components/ProductModal';
 import Pagination from '../components/Pagination';
-import { PRODUCT_CATEGORIES, PRODUCTS_PER_PAGE, SEED_PRODUCTS } from '../utils/constants';
+import { PRODUCT_CATEGORIES, PRODUCTS_PER_PAGE } from '../utils/constants';
 
 const SORT_OPTIONS = [
   { label: 'Name A–Z',     value: 'name_asc'   },
@@ -14,28 +14,18 @@ const SORT_OPTIONS = [
 ];
 
 export default function Products() {
-  const [products, setProducts]     = useState([]);
-  const [loading, setLoading]       = useState(true);
   const [search, setSearch]         = useState('');
   const [category, setCategory]     = useState('All');
   const [sort, setSort]             = useState('name_asc');
   const [page, setPage]             = useState(1);
   const [viewProduct, setViewProduct] = useState(null);
+  const [products, setProducts]     = useState([]);
 
-  useEffect(() => { fetchProducts(); }, []);
-
-  const fetchProducts = async () => {
-    setLoading(true);
-    try {
-      const { data, error } = await supabase.from('products').select('*').eq('is_active', true).order('name');
-      if (error) throw error;
-      setProducts(data?.length > 0 ? data : SEED_PRODUCTS.map((p, i) => ({ ...p, id: String(i + 1) })));
-    } catch {
-      setProducts(SEED_PRODUCTS.map((p, i) => ({ ...p, id: String(i + 1) })));
-    } finally {
-      setLoading(false);
-    }
-  };
+  useEffect(() => {
+    getAll('products').then((data) =>
+      setProducts(data.filter((r) => r.is_active !== false).sort((a, b) => a.name.localeCompare(b.name)))
+    );
+  }, []);
 
   // Filter + Search
   let filtered = products.filter((p) => {
@@ -115,11 +105,7 @@ export default function Products() {
 
       {/* Grid */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        {loading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {Array.from({ length: 6 }).map((_, i) => <div key={i} className="card h-80 animate-pulse bg-dark-600" />)}
-          </div>
-        ) : paginated.length > 0 ? (
+        {paginated.length > 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {paginated.map((product) => (
               <ProductCard key={product.id} product={product} onViewDetails={setViewProduct} />

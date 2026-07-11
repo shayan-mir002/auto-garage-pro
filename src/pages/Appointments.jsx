@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useSearchParams, useNavigate, Navigate } from 'react-router-dom';
 import DatePicker from 'react-datepicker';
 import { CalendarDays, Clock, User, Car, Wrench, CheckCircle, Loader2 } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { getAll, query, insert } from '../lib/supabase';
 import { DEFAULT_TIME_SLOTS, formatTime } from '../utils/constants';
+import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
 
 const SERVICE_TYPES = ['Basic Package', 'Standard Package', 'Premium Package', 'Oil Change', 'Brake Service', 'Tire Rotation', 'Engine Diagnostics', 'General Repair'];
@@ -11,6 +12,8 @@ const SERVICE_TYPES = ['Basic Package', 'Standard Package', 'Premium Package', '
 export default function Appointments() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const { session, profile } = useAuth();
+  if (!session) return <Navigate to="/login" replace />;
 
   const [form, setForm] = useState({
     customer_name: '',
@@ -27,6 +30,17 @@ export default function Appointments() {
   const [success, setSuccess] = useState(false);
   const [loadingSlots, setLoadingSlots] = useState(false);
 
+  // Prefill logged-in user details
+  useEffect(() => {
+    if (session?.user) {
+      setForm((f) => ({
+        ...f,
+        customer_name: f.customer_name || profile?.full_name || session.user.user_metadata?.full_name || '',
+        customer_email: f.customer_email || session.user.email || '',
+      }));
+    }
+  }, [session, profile]);
+
   // Fetch booked slots when date changes
   useEffect(() => {
     if (!date) return;
@@ -40,19 +54,15 @@ export default function Appointments() {
   }, []);
 
   const fetchAvailableSlots = async () => {
-    const { data } = await supabase.from('time_slots').select('slot_time').eq('is_active', true).order('slot_time');
-    if (data && data.length > 0) setAvailableSlots(data.map((r) => r.slot_time));
+    const data = await query('time_slots', (r) => r.is_active === true);
+    if (data.length > 0) setAvailableSlots(data.map((r) => r.slot_time));
   };
 
   const fetchBookedSlots = async (selectedDate) => {
     setLoadingSlots(true);
     const dateStr = selectedDate.toISOString().split('T')[0];
-    const { data } = await supabase
-      .from('appointments')
-      .select('time_slot')
-      .eq('appointment_date', dateStr)
-      .neq('status', 'Cancelled');
-    setBookedSlots(data ? data.map((r) => r.time_slot) : []);
+    const data = await query('appointments', (r) => r.appointment_date === dateStr && r.status !== 'Cancelled');
+    setBookedSlots(data.map((r) => r.time_slot));
     setLoadingSlots(false);
   };
 
@@ -64,36 +74,16 @@ export default function Appointments() {
     if (!slot) { toast.error('Please select a time slot.'); return; }
     if (!form.service_type) { toast.error('Please select a service type.'); return; }
 
-    setSubmitting(true);
-    try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const userId = sessionData?.session?.user?.id || null;
+    await insert('appointments', {
+      ...form,
+      user_id: session?.user?.id || null,
+      appointment_date: date.toISOString().split('T')[0],
+      time_slot: slot,
+      status: 'Pending',
+    });
 
-      const { error } = await supabase.from('appointments').insert({
-        ...form,
-        user_id: userId,
-        appointment_date: date.toISOString().split('T')[0],
-        time_slot: slot,
-        status: 'Pending',
-      });
-
-      if (error) {
-        if (error.code === '23505') {
-          toast.error('That time slot is already booked. Please choose another.');
-        } else {
-          throw error;
-        }
-      } else {
-        setSuccess(true);
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-      }
-    } catch (err) {
-      const msg = err.message || err.error_description || 'Failed to book appointment.';
-      toast.error(`Error: ${msg}`);
-      console.error('Booking Error:', err);
-    } finally {
-      setSubmitting(false);
-    }
+    setSuccess(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   // Disable past dates and Sundays

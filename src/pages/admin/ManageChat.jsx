@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { MessageCircle, Send, Loader2, Inbox } from 'lucide-react';
-import { supabase } from '../../lib/supabase';
+import { getAll, query, insert } from '../../lib/supabase';
 import toast from 'react-hot-toast';
 
 export default function ManageChat() {
-  const [sessions, setSessions]     = useState([]); // unique sessions
+  const [sessions, setSessions]     = useState([]);
   const [activeSession, setActive]  = useState(null);
   const [messages, setMessages]     = useState([]);
   const [reply, setReply]           = useState('');
@@ -17,18 +17,6 @@ export default function ManageChat() {
   useEffect(() => {
     if (!activeSession) return;
     fetchMessages(activeSession);
-
-    const channel = supabase
-      .channel(`admin_chat_${activeSession}`)
-      .on('postgres_changes', {
-        event: 'INSERT', schema: 'public', table: 'chat_messages',
-        filter: `session_id=eq.${activeSession}`,
-      }, (payload) => {
-        setMessages((prev) => [...prev, payload.new]);
-      })
-      .subscribe();
-
-    return () => supabase.removeChannel(channel);
   }, [activeSession]);
 
   useEffect(() => {
@@ -37,36 +25,28 @@ export default function ManageChat() {
 
   const fetchSessions = async () => {
     setLoading(true);
-    const { data } = await supabase
-      .from('chat_messages')
-      .select('session_id, customer_name, created_at, is_read, sender')
-      .order('created_at', { ascending: false });
+    const data = await getAll('chat_messages');
+    data.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
-    if (data) {
-      // Get unique sessions (latest message per session)
-      const map = {};
-      data.forEach((m) => {
-        if (!map[m.session_id]) map[m.session_id] = m;
-      });
-      setSessions(Object.values(map));
-    }
+    const map = {};
+    data.forEach((m) => {
+      if (!map[m.session_id]) map[m.session_id] = m;
+    });
+    setSessions(Object.values(map));
     setLoading(false);
   };
 
   const fetchMessages = async (sessionId) => {
-    const { data } = await supabase
-      .from('chat_messages')
-      .select('*')
-      .eq('session_id', sessionId)
-      .order('created_at');
-    setMessages(data || []);
+    const data = await query('chat_messages', (m) => m.session_id === sessionId);
+    data.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    setMessages(data);
   };
 
   const sendReply = async (e) => {
     e.preventDefault();
     if (!reply.trim() || !activeSession) return;
     setSending(true);
-    await supabase.from('chat_messages').insert({
+    await insert('chat_messages', {
       session_id:    activeSession,
       customer_name: 'Admin',
       sender:        'admin',

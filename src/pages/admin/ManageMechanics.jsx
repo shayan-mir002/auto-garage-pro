@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Wrench, Plus, Trash2, Edit2, Save, X, Loader2 } from 'lucide-react';
-import { supabase } from '../../lib/supabase';
+import { getAll, insert, update, remove } from '../../lib/supabase';
 import toast from 'react-hot-toast';
 
 const EMPTY_FORM = { name: '', specialization: '', phone: '', is_available: true };
@@ -17,8 +17,9 @@ export default function ManageMechanics() {
 
   const fetchMechanics = async () => {
     setLoading(true);
-    const { data } = await supabase.from('mechanics').select('*').order('name');
-    setMechanics(data || []);
+    const data = await getAll('mechanics');
+    data.sort((a, b) => a.name.localeCompare(b.name));
+    setMechanics(data);
     setLoading(false);
   };
 
@@ -32,10 +33,10 @@ export default function ManageMechanics() {
     setSaving(true);
     try {
       if (editId) {
-        await supabase.from('mechanics').update(form).eq('id', editId);
+        await update('mechanics', editId, form);
         toast.success('Mechanic updated!');
       } else {
-        await supabase.from('mechanics').insert(form);
+        await insert('mechanics', form);
         toast.success('Mechanic added!');
       }
       fetchMechanics();
@@ -57,13 +58,13 @@ export default function ManageMechanics() {
 
   const deleteMechanic = async (id) => {
     if (!confirm('Delete this mechanic?')) return;
-    await supabase.from('mechanics').delete().eq('id', id);
+    await remove('mechanics', id);
     setMechanics((prev) => prev.filter((m) => m.id !== id));
     toast.success('Mechanic deleted.');
   };
 
   const toggleAvailable = async (id, val) => {
-    await supabase.from('mechanics').update({ is_available: val }).eq('id', id);
+    await update('mechanics', id, { is_available: val });
     setMechanics((prev) => prev.map((m) => m.id === id ? { ...m, is_available: val } : m));
   };
 

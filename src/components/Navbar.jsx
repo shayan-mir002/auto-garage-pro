@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Wrench, Menu, X, Phone, ChevronRight, ShoppingCart, Bell, User, LogOut } from 'lucide-react';
+import { Wrench, Menu, X, Phone, ChevronRight, ShoppingCart, Bell, User, LogOut, LayoutDashboard } from 'lucide-react';
 import { NAV_LINKS } from '../utils/constants';
 import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
@@ -12,8 +12,17 @@ export default function Navbar() {
   const [cartOpen, setCartOpen]   = useState(false);
   const { pathname } = useLocation();
   const { totalItems } = useCart();
-  const { isCustomer, isAdmin, session, logout } = useAuth();
+  const { isCustomer, isAdmin, session, profile, logout, loading } = useAuth();
   const navigate = useNavigate();
+  const loggingOut = useRef(false);
+
+  // Navigate after auth state has fully updated during logout
+  useEffect(() => {
+    if (loggingOut.current && !session && !loading) {
+      loggingOut.current = false;
+      navigate('/', { replace: true });
+    }
+  }, [session, loading, navigate]);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 20);
@@ -23,9 +32,9 @@ export default function Navbar() {
 
   useEffect(() => { setOpen(false); }, [pathname]);
 
-  const handleLogout = async () => {
-    await logout();
-    navigate('/');
+  const handleLogout = () => {
+    loggingOut.current = true;
+    logout();
   };
 
   return (
@@ -72,22 +81,29 @@ export default function Navbar() {
                 )}
               </button>
 
-              {/* Customer auth area */}
-              {isCustomer ? (
+              {/* Auth area */}
+              {session ? (
                 <div className="flex items-center gap-2">
-                  <Link to="/portal" className="flex items-center gap-2 px-3 py-2 rounded-lg text-slate-300 hover:text-orange-400 hover:bg-slate-800 text-sm font-semibold transition-colors">
-                    <User size={16} />
-                    <span>Portal</span>
-                  </Link>
+                  {isAdmin ? (
+                    <Link to="/admin/dashboard" className="flex items-center gap-2 px-3 py-2 rounded-lg text-slate-300 hover:text-orange-400 hover:bg-slate-800 text-sm font-semibold transition-colors">
+                      <LayoutDashboard size={16} />
+                      <span>Dashboard</span>
+                    </Link>
+                  ) : (
+                    <Link to="/portal" className="flex items-center gap-2 px-3 py-2 rounded-lg text-slate-300 hover:text-orange-400 hover:bg-slate-800 text-sm font-semibold transition-colors">
+                      <User size={16} />
+                      <span>{profile?.full_name || session?.user?.email?.split('@')[0] || 'Portal'}</span>
+                    </Link>
+                  )}
                   <button onClick={handleLogout} className="p-2 rounded-lg text-slate-400 hover:text-red-400 transition-colors" title="Sign Out">
                     <LogOut size={18} />
                   </button>
                 </div>
-              ) : !isAdmin ? (
+              ) : (
                 <Link to="/login" className="flex items-center gap-1.5 text-slate-300 hover:text-orange-400 font-semibold text-sm transition-colors px-3 py-2 rounded-lg hover:bg-slate-800">
                   <User size={16} /> Login
                 </Link>
-              ) : null}
+              )}
 
               <Link to="/appointments" className="bg-orange-500 hover:bg-orange-600 text-white font-bold text-sm py-2.5 px-6 rounded-md shadow-lg shadow-orange-500/20 transition-all hover:shadow-orange-500/40">
                 Book Appointment
@@ -121,16 +137,22 @@ export default function Navbar() {
                   {label}<ChevronRight size={14} />
                 </Link>
               ))}
-              {isCustomer ? (
+              {session ? (
                 <>
-                  <Link to="/portal" className="flex items-center justify-between px-4 py-3 rounded-lg text-sm font-medium text-slate-400 hover:text-white hover:bg-dark-600/60">
-                    My Portal<ChevronRight size={14} />
-                  </Link>
+                  {isAdmin ? (
+                    <Link to="/admin/dashboard" className="flex items-center justify-between px-4 py-3 rounded-lg text-sm font-medium text-slate-400 hover:text-white hover:bg-dark-600/60">
+                      Dashboard<ChevronRight size={14} />
+                    </Link>
+                  ) : (
+                    <Link to="/portal" className="flex items-center justify-between px-4 py-3 rounded-lg text-sm font-medium text-slate-400 hover:text-white hover:bg-dark-600/60">
+                      {profile?.full_name || session?.user?.email?.split('@')[0] || 'My Portal'}<ChevronRight size={14} />
+                    </Link>
+                  )}
                   <button onClick={handleLogout} className="w-full text-left px-4 py-3 rounded-lg text-sm font-medium text-red-400 hover:bg-red-900/20 transition-colors">
                     Sign Out
                   </button>
                 </>
-              ) : !isAdmin && (
+              ) : (
                 <Link to="/login" className="flex items-center justify-between px-4 py-3 rounded-lg text-sm font-medium text-slate-400 hover:text-white hover:bg-dark-600/60">
                   Login<ChevronRight size={14} />
                 </Link>

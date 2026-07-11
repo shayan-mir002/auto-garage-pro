@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { ShoppingBag, Package, Check, X, Eye, Loader2 } from 'lucide-react';
-import { supabase } from '../../lib/supabase';
+import { getAll, query, update } from '../../lib/supabase';
 import toast from 'react-hot-toast';
 
 const STATUS_OPTIONS = ['Pending', 'Processing', 'Shipped', 'Delivered', 'Cancelled'];
@@ -16,23 +16,29 @@ const STATUS_COLORS = {
 export default function ManageOrders() {
   const [orders, setOrders]   = useState([]);
   const [loading, setLoading] = useState(true);
-  const [expanded, setExpanded] = useState(null); // expanded order id
+  const [expanded, setExpanded] = useState(null);
 
   useEffect(() => { fetchOrders(); }, []);
 
   const fetchOrders = async () => {
     setLoading(true);
-    const { data } = await supabase
-      .from('orders')
-      .select('*, order_items(*)')
-      .order('created_at', { ascending: false });
-    setOrders(data || []);
-    setLoading(false);
+    try {
+      const data = await getAll('orders');
+      data.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      for (const order of data) {
+        order.order_items = await query('order_items', (r) => r.order_id === order.id);
+      }
+      setOrders(data);
+    } catch (err) {
+      console.error('[ManageOrders] Error fetching orders:', err);
+      toast.error('Failed to load orders.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const updateStatus = async (orderId, newStatus) => {
-    const { error } = await supabase.from('orders').update({ status: newStatus }).eq('id', orderId);
-    if (error) { toast.error('Failed to update status'); return; }
+    await update('orders', orderId, { status: newStatus });
     setOrders((prev) => prev.map((o) => o.id === orderId ? { ...o, status: newStatus } : o));
     toast.success(`Order marked as ${newStatus}`);
   };
@@ -59,7 +65,6 @@ export default function ManageOrders() {
         <div className="space-y-3">
           {orders.map((order) => (
             <div key={order.id} className="card">
-              {/* Order header */}
               <div className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <p className="text-white font-semibold">
@@ -86,7 +91,6 @@ export default function ManageOrders() {
                 </div>
               </div>
 
-              {/* Expanded items */}
               {expanded === order.id && (
                 <div className="border-t border-dark-300/40 px-4 py-3">
                   <p className="text-slate-500 text-xs font-semibold uppercase tracking-wider mb-2">Order Items</p>

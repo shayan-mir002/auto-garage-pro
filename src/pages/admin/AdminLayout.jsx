@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, CalendarDays, Wrench, ShoppingBag, Clock,
@@ -21,15 +21,24 @@ const navItems = [
 
 export default function AdminLayout({ children }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const { logout } = useAuth();
+  const { session, logout, loading } = useAuth();
   const navigate = useNavigate();
   const { pathname } = useLocation();
+  const loggingOut = useRef(false);
+
+  // Navigate after auth state has fully updated during logout
+  useEffect(() => {
+    if (loggingOut.current && !session && !loading) {
+      loggingOut.current = false;
+      navigate('/login', { replace: true });
+    }
+  }, [session, loading, navigate]);
 
   useEffect(() => { setSidebarOpen(false); }, [pathname]);
 
-  const handleLogout = async () => {
-    await logout();
-    navigate('/admin/login');
+  const handleLogout = () => {
+    loggingOut.current = true;
+    logout();
   };
 
   const currentTitle = navItems.find((n) => n.path === pathname)?.label || 'Admin';

@@ -1,4 +1,5 @@
 import { X, CheckCircle, Tag } from 'lucide-react';
+import { getImageUrl } from '../utils/constants';
 
 export default function ProductModal({ product, onClose, onRequestBuy }) {
   if (!product) return null;
@@ -9,7 +10,7 @@ export default function ProductModal({ product, onClose, onRequestBuy }) {
         {/* Image */}
         <div className="relative h-56 bg-dark-600 rounded-t-xl overflow-hidden">
           <img
-            src={product.image_url}
+            src={getImageUrl(product.image_url, product.name)}
             alt={product.name}
             className="w-full h-full object-cover"
             onError={(e) => { e.target.style.display = 'none'; }}

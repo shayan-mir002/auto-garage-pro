@@ -1,24 +1,25 @@
 import { useState, useEffect, useRef } from 'react';
 import { X, ShoppingCart, Plus, Minus, Trash2, CreditCard, Loader2, CheckCircle } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
-import { supabase } from '../lib/supabase';
+import { insert } from '../lib/supabase';
+import { getImageUrl } from '../utils/constants';
 import toast from 'react-hot-toast';
 
 export default function CartDrawer({ open, onClose }) {
   const { items, removeItem, updateQty, clearCart, totalItems, totalPrice } = useCart();
   const { session, isCustomer } = useAuth();
+  const navigate = useNavigate();
   const [checkoutForm, setCheckoutForm] = useState({ name: '', email: '', phone: '' });
-  const [step, setStep] = useState('cart'); // 'cart' | 'checkout' | 'success'
+  const [step, setStep] = useState('cart');
   const [submitting, setSubmitting] = useState(false);
   const drawerRef = useRef(null);
 
-  // Pre-fill email if logged in
   useEffect(() => {
     if (session) setCheckoutForm(f => ({ ...f, email: session.user.email }));
   }, [session]);
 
-  // Close on outside click
   useEffect(() => {
     const handler = (e) => {
       if (drawerRef.current && !drawerRef.current.contains(e.target)) onClose();
@@ -29,49 +30,47 @@ export default function CartDrawer({ open, onClose }) {
 
   const handleCheckout = async (e) => {
     e.preventDefault();
+    if (!session) {
+      toast.error('Please log in first to place an order.');
+      onClose();
+      navigate('/login');
+      return;
+    }
     if (items.length === 0) return;
     setSubmitting(true);
-    try {
-      // Insert order
-      const { data: order, error: orderErr } = await supabase.from('orders').insert({
-        user_id: session?.user?.id || null,
-        customer_name:  checkoutForm.name,
-        customer_email: checkoutForm.email,
-        customer_phone: checkoutForm.phone,
-        total_amount:   totalPrice,
-        status: 'Pending',
-      }).select().single();
 
-      if (orderErr) throw orderErr;
+    const orderItems = items.map((i) => ({
+      product_id:   i.id,
+      product_name: i.name,
+      unit_price:   i.price,
+      quantity:     i.qty,
+    }));
 
-      // Insert order items
-      const orderItems = items.map((i) => ({
-        order_id:     order.id,
-        product_id:   i.id,
-        product_name: i.name,
-        unit_price:   i.price,
-        quantity:     i.qty,
-      }));
-      await supabase.from('order_items').insert(orderItems);
+    const order = await insert('orders', {
+      user_id: session?.user?.id || null,
+      customer_name:  checkoutForm.name,
+      customer_email: checkoutForm.email,
+      customer_phone: checkoutForm.phone,
+      total_amount:   totalPrice,
+      status: 'Pending',
+    });
 
-      // Send notification if customer is logged in
-      if (session && isCustomer) {
-        await supabase.from('notifications').insert({
-          user_id: session.user.id,
-          title:   'Order Placed Successfully!',
-          message: `Your order of ${totalItems} item(s) totalling $${totalPrice.toFixed(2)} is being processed.`,
-          type:    'success',
-        });
-      }
+    await insert('order_items',
+      orderItems.map((i) => ({ ...i, order_id: order.id }))
+    );
 
-      clearCart();
-      setStep('success');
-    } catch (err) {
-      toast.error('Failed to place order. Please try again.');
-      console.error(err);
-    } finally {
-      setSubmitting(false);
+    if (session && isCustomer) {
+      await insert('notifications', {
+        user_id: session.user.id,
+        title:   'Order Placed Successfully!',
+        message: `Your order of ${totalItems} item(s) totalling $${totalPrice.toFixed(2)} is being processed.`,
+        type:    'success',
+      });
     }
+
+    clearCart();
+    setStep('success');
+    setSubmitting(false);
   };
 
   const handleClose = () => {
@@ -84,10 +83,8 @@ export default function CartDrawer({ open, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
-      {/* Backdrop */}
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
 
-      {/* Drawer */}
       <div ref={drawerRef} className="relative w-full max-w-md bg-dark-800 border-l border-dark-300/40 h-full flex flex-col shadow-2xl animate-slide-up">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-dark-300/40">
@@ -134,7 +131,6 @@ export default function CartDrawer({ open, onClose }) {
                 <input className="input" value={checkoutForm.phone} onChange={(e) => setCheckoutForm(f => ({ ...f, phone: e.target.value }))} placeholder="+1 (555) 000-0000" />
               </div>
 
-              {/* Order summary */}
               <div className="bg-dark-700 rounded-xl p-4 space-y-2 mt-4">
                 <p className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-2">Order Summary</p>
                 {items.map((i) => (
@@ -167,7 +163,7 @@ export default function CartDrawer({ open, onClose }) {
                   <div key={item.id} className="card p-4 flex gap-3">
                     <div className="w-14 h-14 rounded-lg bg-dark-600 overflow-hidden flex-shrink-0">
                       {item.image_url ? (
-                        <img src={item.image_url} alt={item.name} className="w-full h-full object-cover" onError={(e) => { e.target.style.display = 'none'; }} />
+                        <img src={getImageUrl(item.image_url, item.name)} alt={item.name} className="w-full h-full object-cover" onError={(e) => { e.target.style.display = 'none'; }} />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center text-dark-300 text-xs">IMG</div>
                       )}
@@ -202,7 +198,7 @@ export default function CartDrawer({ open, onClose }) {
               <span>Total</span>
               <span className="text-accent-orange">${totalPrice.toFixed(2)}</span>
             </div>
-            <button onClick={() => setStep('checkout')} className="btn-accent w-full justify-center py-3">
+            <button onClick={() => { if (!session) { toast.error('Please log in first to place an order.'); onClose(); navigate('/login'); return; } setStep('checkout'); }} className="btn-accent w-full justify-center py-3">
               <CreditCard size={16} /> Proceed to Checkout
             </button>
             <button onClick={clearCart} className="w-full text-slate-600 hover:text-slate-400 text-xs transition-colors">

@@ -1,6 +1,6 @@
 import React, { useEffect, useState, Fragment } from 'react';
 import { CalendarDays, Filter, Loader2, X, Trash2, ChevronDown, Users, FileText } from 'lucide-react';
-import { supabase } from '../../lib/supabase';
+import { getAll, query, update, insert, remove } from '../../lib/supabase';
 import toast from 'react-hot-toast';
 
 const STATUSES = ['All', 'Pending', 'In Progress', 'Ready for Pickup', 'Completed', 'Cancelled'];
@@ -20,7 +20,7 @@ export default function ManageAppointments() {
   const [filter, setFilter]             = useState('All');
   const [dateFilter, setDateFilter]     = useState('');
   const [expandedId, setExpandedId]     = useState(null);
-  const [notesMap, setNotesMap]         = useState({}); // mechanic notes per appt
+  const [notesMap, setNotesMap]         = useState({});
 
   useEffect(() => {
     fetchAll();
@@ -28,31 +28,22 @@ export default function ManageAppointments() {
 
   const fetchAll = async () => {
     setLoading(true);
-    const [apptRes, mechRes] = await Promise.all([
-      supabase.from('appointments').select('*, mechanics(name)').order('appointment_date', { ascending: false }),
-      supabase.from('mechanics').select('id, name').eq('is_available', true),
+    const [mechanicsList, appts] = await Promise.all([
+      query('mechanics', (r) => r.is_available === true),
+      getAll('appointments'),
     ]);
-    
-    if (apptRes.error) {
-      console.error('Error fetching appointments:', apptRes.error);
-      toast.error('Failed to load appointments. Please check database schema.');
-    }
-    
-    setAppointments(apptRes.data || []);
-    setMechanics(mechRes.data || []);
+    const mechanicsData = mechanicsList.map(({ id, name }) => ({ id, name }));
+    appts.sort((a, b) => new Date(b.appointment_date) - new Date(a.appointment_date));
+    setAppointments(appts.map((a) => ({ ...a, mechanic_name: mechanicsData.find((m) => m.id === a.mechanic_id)?.name })));
+    setMechanics(mechanicsData);
     setLoading(false);
   };
 
   const updateStatus = async (id, status) => {
-    const { error } = await supabase.from('appointments').update({ status }).eq('id', id);
-    if (error) { 
-      toast.error(`Error: ${error.message || 'Failed to update status.'}`); 
-      console.error(error);
-      return; 
-    }
+    await update('appointments', id, { status });
     const appt = appointments.find(a => a.id === id);
     if (appt) {
-      await supabase.from('notifications').insert({
+      await insert('notifications', {
         user_id: appt.user_id,
         customer_email: appt.customer_email,
         title: 'Appointment Update',
@@ -66,17 +57,12 @@ export default function ManageAppointments() {
 
   const assignMechanic = async (id, mechanicId) => {
     const val = mechanicId === '' ? null : mechanicId;
-    const { error } = await supabase.from('appointments').update({ mechanic_id: val }).eq('id', id);
-    if (error) { 
-      toast.error(`Error: ${error.message || 'Failed to assign mechanic.'}`); 
-      console.error(error);
-      return; 
-    }
+    await update('appointments', id, { mechanic_id: val });
     const mech = mechanics.find(m => m.id === mechanicId);
     const appt = appointments.find(a => a.id === id);
     
     if (appt && mech) {
-      await supabase.from('notifications').insert({
+      await insert('notifications', {
         user_id: appt.user_id,
         customer_email: appt.customer_email,
         title: 'Mechanic Assigned',
@@ -91,14 +77,14 @@ export default function ManageAppointments() {
 
   const saveMechanicNotes = async (id) => {
     const notes = notesMap[id] ?? '';
-    await supabase.from('appointments').update({ mechanic_notes: notes }).eq('id', id);
+    await update('appointments', id, { mechanic_notes: notes });
     setAppointments((prev) => prev.map((a) => a.id === id ? { ...a, mechanic_notes: notes } : a));
     toast.success('Notes saved');
   };
 
   const deleteAppointment = async (id) => {
     if (!window.confirm('Delete this appointment?')) return;
-    await supabase.from('appointments').delete().eq('id', id);
+    await remove('appointments', id);
     setAppointments((prev) => prev.filter((a) => a.id !== id));
     toast.success('Appointment deleted.');
   };

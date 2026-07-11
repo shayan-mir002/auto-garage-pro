@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Eye, ShoppingCart, Tag } from 'lucide-react';
 import { useCart } from '../context/CartContext';
+import { getImageUrl } from '../utils/constants';
 import toast from 'react-hot-toast';
 
 export default function ProductCard({ product, onViewDetails }) {
@@ -18,7 +19,7 @@ export default function ProductCard({ product, onViewDetails }) {
       <div className="relative overflow-hidden h-48 bg-dark-600 rounded-t-xl">
         {!imgError ? (
           <img
-            src={product.image_url}
+            src={getImageUrl(product.image_url, product.name)}
             alt={product.name}
             className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
             onError={() => setImgError(true)}

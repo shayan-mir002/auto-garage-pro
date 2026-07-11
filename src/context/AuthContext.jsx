@@ -1,98 +1,93 @@
 import { createContext, useContext, useEffect, useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { signIn, signUp, signOut, getSession, getProfile, updateProfile as updateProfileAPI } from '../lib/supabase';
 
 const ADMIN_EMAIL = 'admin@shop.com';
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-  const [session, setSession]   = useState(null);
-  const [profile, setProfile]   = useState(null);
-  const [loading, setLoading]   = useState(true);
+  const [session, setSession] = useState(null);
+  const [profile, setProfile] = useState(null);
 
   useEffect(() => {
-    // Load initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      if (session && session.user.email !== ADMIN_EMAIL) {
-        fetchProfile(session.user.id);
+    const s = getSession();
+    if (s) {
+      setSession(s);
+      if (s.user.email !== ADMIN_EMAIL) {
+        getProfile(s.user.id).then((p) => { if (p) setProfile(p); });
       }
-      setLoading(false);
-    });
-
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      if (session && session.user.email !== ADMIN_EMAIL) {
-        fetchProfile(session.user.id);
-      } else {
-        setProfile(null);
-      }
-    });
-
-    return () => subscription.unsubscribe();
+    }
   }, []);
 
-  const fetchProfile = async (userId) => {
-    const { data } = await supabase.from('profiles').select('*').eq('id', userId).single();
-    setProfile(data || null);
-  };
-
-  // Admin login — uses hardcoded email
   const login = async (password) => {
-    const { data, error } = await supabase.auth.signInWithPassword({ email: ADMIN_EMAIL, password });
-    if (error) throw error;
+    const data = await signIn({ email: ADMIN_EMAIL, password });
+    const s = getSession();
+    if (s) setSession(s);
     return data;
   };
 
-  // Customer login
   const customerLogin = async (email, password) => {
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) throw error;
-    return data;
-  };
-
-  // Customer register
-  const customerRegister = async (email, password, fullName) => {
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: { full_name: fullName }
+    const data = await signIn({ email, password });
+    const s = getSession();
+    if (s) {
+      setSession(s);
+      if (s.user.email !== ADMIN_EMAIL) {
+        const p = await getProfile(s.user.id);
+        if (p) setProfile(p);
       }
-    });
-    if (error) throw error;
-    if (data.user) {
-      await supabase.from('profiles').upsert({ id: data.user.id, full_name: fullName });
-      setProfile({ id: data.user.id, full_name: fullName, phone: null, preferred_car: null });
     }
     return data;
   };
 
-  const logout = async () => {
-    await supabase.auth.signOut();
+  const customerRegister = async (email, password, fullName) => {
+    const data = await signUp({ email, password, full_name: fullName });
+    const s = getSession();
+    if (s) {
+      setSession(s);
+      if (s.user.email !== ADMIN_EMAIL) {
+        const p = await getProfile(s.user.id);
+        if (p) setProfile(p);
+      }
+    }
+    return data;
+  };
+
+  const logout = () => {
+    signOut();
+    setSession(null);
     setProfile(null);
   };
 
   const updateProfile = async (updates) => {
     if (!session) return;
-    await supabase.from('profiles').upsert({ id: session.user.id, ...updates });
+    await updateProfileAPI(session.user.id, updates);
     setProfile((p) => ({ ...p, ...updates }));
   };
 
   const refreshProfile = () => {
-    if (session && session.user.email !== ADMIN_EMAIL) fetchProfile(session.user.id);
+    if (session && session.user.email !== ADMIN_EMAIL) {
+      getProfile(session.user.id).then((p) => { if (p) setProfile(p); });
+    }
   };
 
-  // Derive role booleans
-  const isAdmin    = !!(session && session.user.email === ADMIN_EMAIL);
-  const isCustomer = !!(session && session.user.email !== ADMIN_EMAIL);
+  const isAdmin = !!(session && session.user?.email === ADMIN_EMAIL);
+  const isCustomer = !!(session && session.user?.email !== ADMIN_EMAIL);
 
   return (
-    <AuthContext.Provider value={{
-      session, profile, loading,
-      isAdmin, isCustomer,
-      login, customerLogin, customerRegister, logout, updateProfile, refreshProfile,
-    }}>
+    <AuthContext.Provider
+      value={{
+        session,
+        profile,
+        loading: false,
+        isAdmin,
+        isCustomer,
+        login,
+        customerLogin,
+        customerRegister,
+        logout,
+        updateProfile,
+        refreshProfile,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

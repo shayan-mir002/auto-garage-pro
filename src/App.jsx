@@ -3,6 +3,7 @@ import { Toaster } from 'react-hot-toast';
 import { AuthProvider } from './context/AuthContext';
 import { CartProvider } from './context/CartContext';
 import ProtectedRoute from './components/ProtectedRoute';
+import ErrorBoundary from './components/ErrorBoundary';
 
 // Public layout & components
 import Navbar from './components/Navbar';
@@ -21,7 +22,6 @@ import CustomerRegister from './pages/customer/CustomerRegister';
 import CustomerPortal from './pages/customer/CustomerPortal';
 
 // Admin pages
-import AdminLogin from './pages/admin/AdminLogin';
 import AdminLayout from './pages/admin/AdminLayout';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import ManageAppointments from './pages/admin/ManageAppointments';
@@ -71,9 +71,10 @@ export default function App() {
               error: { iconTheme: { primary: '#f87171', secondary: '#0a0e1a' } },
             }}
           />
+          <ErrorBoundary>
           <Routes>
             {/* ── Public routes ── */}
-            <Route path="/" element={<RequireAuthHome><PublicLayout><Home /></PublicLayout></RequireAuthHome>} />
+            <Route path="/" element={<PublicLayout><Home /></PublicLayout>} />
             <Route path="/services" element={<PublicLayout><Services /></PublicLayout>} />
             <Route path="/products" element={<PublicLayout><Products /></PublicLayout>} />
             <Route path="/appointments" element={<PublicLayout><Appointments /></PublicLayout>} />
@@ -84,8 +85,7 @@ export default function App() {
             <Route path="/portal" element={<PublicLayout><CustomerPortal /></PublicLayout>} />
 
             {/* ── Admin routes ── */}
-            <Route path="/admin" element={<Navigate to="/admin/login" replace />} />
-            <Route path="/admin/login" element={<AdminLogin />} />
+            <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
 
             <Route path="/admin/dashboard" element={<ProtectedRoute><AdminLayout><AdminDashboard /></AdminLayout></ProtectedRoute>} />
             <Route path="/admin/appointments" element={<ProtectedRoute><AdminLayout><ManageAppointments /></AdminLayout></ProtectedRoute>} />
@@ -100,6 +100,7 @@ export default function App() {
             {/* 404 fallback */}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
+          </ErrorBoundary>
         </BrowserRouter>
       </CartProvider>
     </AuthProvider>

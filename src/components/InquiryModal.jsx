@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { X, Send, Loader2 } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { insert } from '../lib/supabase';
 import toast from 'react-hot-toast';
+
 
 export default function InquiryModal({ product, onClose }) {
   const [form, setForm] = useState({ customer_name: '', customer_email: '', customer_phone: '', message: '' });
@@ -18,26 +19,19 @@ export default function InquiryModal({ product, onClose }) {
     setSubmitting(true);
     const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(product.id);
     
-    try {
-      const { error } = await supabase.from('inquiries').insert({
-        product_id: isUUID ? product.id : null,
-        ...form,
-      });
-      if (error) throw error;
-      toast.success('Inquiry sent! We\'ll get back to you soon.');
-      onClose();
-    } catch (err) {
-      toast.error('Failed to send inquiry. Please try again.');
-      console.error(err);
-    } finally {
-      setSubmitting(false);
-    }
+    await insert('inquiries', {
+      product_id: isUUID ? product.id : null,
+      ...form,
+    });
+
+    toast.success('Inquiry sent! We\'ll get back to you soon.');
+    setSubmitting(false);
+    onClose();
   };
 
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-box" onClick={(e) => e.stopPropagation()}>
-        {/* Header */}
         <div className="flex items-start justify-between p-6 border-b border-dark-300">
           <div>
             <h2 className="text-lg font-display font-bold text-white">Request to Buy</h2>
