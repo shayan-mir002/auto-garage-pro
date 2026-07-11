@@ -340,7 +340,9 @@ async function seedDatabase() {
 
 // ─── Connect & Seed helper ────────────────────────────────────────────────
 async function connectAndSeed(uri) {
-  await mongoose.connect(uri);
+  if (mongoose.connection.readyState === 0) {
+    await mongoose.connect(uri);
+  }
   await seedDatabase();
 }
 
